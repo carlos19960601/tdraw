@@ -37,8 +37,9 @@ func App() *cli.App {
 			return err
 		}
 
-		radius := 50
-
+		radius := 500
+		numPins := 200
+		numLines := 1000
 		filled := imaging.Fill(src, 2*radius, 2*radius, imaging.Center, imaging.Lanczos)
 		greyscale := imaging.Grayscale(filled)
 		inverted := imaging.Invert(greyscale)
@@ -49,33 +50,32 @@ func App() *cli.App {
 		dc.DrawImage(inverted, 0, 0)
 		masked := dc.Image().(*image.RGBA)
 
-		dc.Clear()
+		dc = gg.NewContext(2*radius, 2*radius)
 		dc.DrawRectangle(0, 0, float64(2*radius), float64(2*radius))
 		dc.SetColor(color.White)
 		dc.Fill()
+		dc.SetColor(color.Black)
 
 		var lines []Line
 		oldPin := 0
-		coords := pinCoords(radius, 200)
+		coords := pinCoords(radius, numPins)
 		previousPins := make([]int, 0, 3)
 
-		for range coords {
+		for ; numLines > 0; numLines-- {
 			oldCoord := coords[oldPin]
 			var bestLine int64
 			var bestPin int
 
-			for index := 1; index <= 200; index++ {
-				pin := (oldPin + index) % 200
+			for index := 1; index <= numPins; index++ {
+				pin := (oldPin + index) % numPins
 				coord := coords[pin]
 
 				lineCoords := linePixels(oldCoord, coord)
 
 				var lineSum int64
 				for _, lineCoord := range lineCoords {
-					r, g, b, _ := masked.At(lineCoord.x, lineCoord.y).RGBA()
-					lineSum += int64(r)
-					lineSum += int64(g)
-					lineSum += int64(b)
+					c := color.GrayModel.Convert(masked.At(lineCoord.x, lineCoord.y)).(color.Gray)
+					lineSum += int64(c.Y)
 				}
 				if lineSum > bestLine && !in(previousPins, pin) {
 					bestLine = lineSum
@@ -90,12 +90,11 @@ func App() *cli.App {
 
 			intPoints := linePixels(coords[oldPin], coords[bestPin])
 			for _, intPoint := range intPoints {
-				c := masked.At(intPoint.x, intPoint.y).(color.RGBA)
-				c.R -= 15
-				c.G -= 15
-				c.B -= 15
-				masked.SetRGBA(intPoint.x, intPoint.y, c)
+				c := color.GrayModel.Convert(masked.At(intPoint.x, intPoint.y)).(color.Gray)
+				c.Y = 0
+				masked.SetRGBA(intPoint.x, intPoint.y, color.RGBAModel.Convert(c).(color.RGBA))
 			}
+			// err = imaging.Save(masked, "/Users/zengqiang/codespace/tdraw/assert/masked1.jpg")
 
 			lines = append(lines, Line{
 				s: oldPin,
@@ -103,9 +102,9 @@ func App() *cli.App {
 			})
 
 			dc.DrawLine(oldCoord.x, oldCoord.y, coords[bestPin].x, coords[bestPin].y)
-			dc.SetColor(color.Black)
-			dc.Fill()
-			dc.SavePNG(c.String("output"))
+			dc.SetLineWidth(0.8)
+			dc.Stroke()
+			// dc.SavePNG(c.String("output"))
 
 			if bestPin == oldPin {
 				break
@@ -113,7 +112,7 @@ func App() *cli.App {
 
 			oldPin = bestPin
 		}
-
+		dc.SavePNG(c.String("output"))
 		// err = imaging.Save(masked, "../assert/masked.jpg")
 		// err = imaging.Save(greyscale, c.String("output"))
 		if err != nil {
