@@ -1,9 +1,13 @@
 package command
 
 import (
+	"fmt"
 	"image"
 	"image/color"
+	"log"
 	"math"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/disintegration/imaging"
 	"github.com/fogleman/gg"
@@ -20,14 +24,68 @@ func App() *cli.App {
 		&cli.StringFlag{
 			Name:     "input",
 			Aliases:  []string{"i"},
-			Usage:    "输入图片路径",
+			Usage:    "输入图片名称",
 			Required: true,
 		},
 		&cli.StringFlag{
 			Name:     "output",
 			Aliases:  []string{"o"},
-			Usage:    "输出图片路径",
+			Usage:    "输出图片目录",
 			Required: true,
+		},
+		&cli.IntFlag{
+			Name:    "radius",
+			Aliases: []string{"r"},
+			Usage:   "输出图片圆的半径",
+			Value:   500,
+		},
+		&cli.IntFlag{
+			Name:    "pins",
+			Aliases: []string{"p"},
+			Usage:   "钉的数量",
+			Value:   200,
+		},
+		&cli.IntFlag{
+			Name:    "lines",
+			Aliases: []string{"l"},
+			Usage:   "线的数量",
+			Value:   1000,
+		},
+		&cli.BoolFlag{
+			Name:    "inverted",
+			Aliases: []string{"iv"},
+			Usage:   "是否打印inverted",
+			Value:   false,
+		},
+		&cli.BoolFlag{
+			Name:    "masked",
+			Aliases: []string{"m"},
+			Usage:   "是否打印masked",
+			Value:   false,
+		},
+		&cli.Float64Flag{
+			Name:    "lwidth",
+			Aliases: []string{"w"},
+			Usage:   "线宽(0-1)",
+			Value:   0.5,
+		},
+		&cli.UintFlag{
+			Name:    "ldeepth",
+			Aliases: []string{"d"},
+			Usage:   "线颜色深度(0-255)",
+			Value:   0,
+		},
+		&cli.BoolFlag{
+			Name:    "ppins",
+			Aliases: []string{"pp"},
+			Usage:   "打印pin的顺序",
+			Value:   false,
+		},
+		&cli.BoolFlag{
+			Name:    "gif",
+			Aliases: []string{"g"},
+			Usage:   "是否生成gif",
+			Value:   false,
 		},
 	}
 
@@ -37,31 +95,43 @@ func App() *cli.App {
 			return err
 		}
 
-		radius := 500
-		numPins := 200
-		numLines := 1000
+		output := c.String("output")
+		radius := c.Int("radius")
+		numPins := c.Int("pins")
+		numLines := c.Int("lines")
 		filled := imaging.Fill(src, 2*radius, 2*radius, imaging.Center, imaging.Lanczos)
 		greyscale := imaging.Grayscale(filled)
 		inverted := imaging.Invert(greyscale)
+		if c.Bool("inverted") {
+			if err = imaging.Save(inverted, fmt.Sprintf("%s/inverted.png", output)); err != nil {
+				return err
+			}
+		}
 
 		dc := gg.NewContext(2*radius, 2*radius)
 		dc.DrawCircle(float64(radius), float64(radius), float64(radius))
 		dc.Clip()
 		dc.DrawImage(inverted, 0, 0)
 		masked := dc.Image().(*image.RGBA)
+		if c.Bool("masked") {
+			if err = imaging.Save(masked, fmt.Sprintf("%s/masked.png", output)); err != nil {
+				return err
+			}
+		}
 
 		dc = gg.NewContext(2*radius, 2*radius)
 		dc.DrawRectangle(0, 0, float64(2*radius), float64(2*radius))
-		dc.SetColor(color.White)
-		dc.Fill()
-		dc.SetColor(color.Black)
+		// dc.SetColor(color.White)
+		// dc.Fill()
+		dc.SetColor(color.Gray{Y: uint8(c.Uint("ldeepth"))})
 
-		var lines []Line
+		lines := make([]int, 0, numLines)
 		oldPin := 0
+		lines = append(lines, oldPin)
 		coords := pinCoords(radius, numPins)
 		previousPins := make([]int, 0, 3)
 
-		for ; numLines > 0; numLines-- {
+		for index := 0; index < numLines; index++ {
 			oldCoord := coords[oldPin]
 			var bestLine int64
 			var bestPin int
@@ -94,29 +164,45 @@ func App() *cli.App {
 				c.Y = 0
 				masked.SetRGBA(intPoint.x, intPoint.y, color.RGBAModel.Convert(c).(color.RGBA))
 			}
-			// err = imaging.Save(masked, "/Users/zengqiang/codespace/tdraw/assert/masked1.jpg")
 
-			lines = append(lines, Line{
-				s: oldPin,
-				e: bestPin,
-			})
+			lines = append(lines, bestPin)
 
 			dc.DrawLine(oldCoord.x, oldCoord.y, coords[bestPin].x, coords[bestPin].y)
-			dc.SetLineWidth(0.8)
+			dc.SetLineWidth(c.Float64("lwidth"))
 			dc.Stroke()
-			// dc.SavePNG(c.String("output"))
+
+			if c.Bool("gif") {
+				dc.SavePNG(fmt.Sprintf("%s/%4d.png", output, index))
+			}
 
 			if bestPin == oldPin {
 				break
 			}
+			log.Printf("===== %d ======\n", index)
 
 			oldPin = bestPin
 		}
-		dc.SavePNG(c.String("output"))
-		// err = imaging.Save(masked, "../assert/masked.jpg")
-		// err = imaging.Save(greyscale, c.String("output"))
-		if err != nil {
+
+		if err = dc.SavePNG(fmt.Sprintf("%s/result.out.png", output)); err != nil {
 			return err
+		}
+
+		if c.Bool("gif") {
+			log.Println("======== generate gif ..... =======")
+			args := []string{
+				"-loop", "0",
+				"-delay", fmt.Sprint(50),
+				filepath.Join(output, "*.png"),
+				fmt.Sprintf("%s/result.out.gif", output),
+			}
+			cmd := exec.Command("convert", args...)
+			if err := cmd.Run(); err != nil {
+				return err
+			}
+		}
+
+		if c.Bool("ppins") {
+			log.Printf("pins: %v", lines)
 		}
 
 		return nil
@@ -177,9 +263,4 @@ type Point struct {
 type IntPoint struct {
 	x int
 	y int
-}
-
-type Line struct {
-	s int
-	e int
 }
