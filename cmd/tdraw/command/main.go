@@ -1,13 +1,15 @@
 package command
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
+	"image/gif"
 	"log"
 	"math"
-	"os/exec"
-	"path/filepath"
+	"os"
 
 	"github.com/disintegration/imaging"
 	"github.com/fogleman/gg"
@@ -121,10 +123,16 @@ func App() *cli.App {
 
 		dc = gg.NewContext(2*radius, 2*radius)
 		dc.DrawRectangle(0, 0, float64(2*radius), float64(2*radius))
-		// dc.SetColor(color.White)
-		// dc.Fill()
+		dc.SetColor(color.Transparent)
+		dc.Fill()
 		dc.SetColor(color.Gray{Y: uint8(c.Uint("ldeepth"))})
 
+		outGif := &gif.GIF{}
+		myPalette := color.Palette{
+			color.Transparent,
+			color.Black,
+			color.White,
+		}
 		lines := make([]int, 0, numLines)
 		oldPin := 0
 		lines = append(lines, oldPin)
@@ -172,14 +180,19 @@ func App() *cli.App {
 			dc.Stroke()
 
 			if c.Bool("gif") {
-				dc.SavePNG(fmt.Sprintf("%s/%4d.png", output, index))
+				img := dc.Image()
+				bounds := img.Bounds()
+				palettedImage := image.NewPaletted(bounds, myPalette)
+				draw.Draw(palettedImage, palettedImage.Rect, img, bounds.Min, draw.Src)
+				outGif.Image = append(outGif.Image, palettedImage)
+				outGif.Disposal = append(outGif.Disposal, gif.DisposalBackground) //透明图片需要设置
+				outGif.Delay = append(outGif.Delay, 0)
 			}
 
 			if bestPin == oldPin {
 				break
 			}
 			log.Printf("===== %d ======\n", index)
-
 			oldPin = bestPin
 		}
 
@@ -188,16 +201,15 @@ func App() *cli.App {
 		}
 
 		if c.Bool("gif") {
-			log.Println("======== generate gif ..... =======")
-			args := []string{
-				"-loop", "0",
-				"-delay", fmt.Sprint(50),
-				filepath.Join(output, "*.png"),
-				fmt.Sprintf("%s/result.out.gif", output),
+			log.Println("===== generate gif ... ======")
+			opfile, err := os.Create(fmt.Sprintf("%s/result.out.gif", output))
+			if err != nil {
+				return errors.New("Failed ceating .gif file on disk: " + err.Error())
 			}
-			cmd := exec.Command("convert", args...)
-			if err := cmd.Run(); err != nil {
-				return err
+
+			err = gif.EncodeAll(opfile, outGif)
+			if err != nil {
+				return errors.New("Failed gif encoding: " + err.Error())
 			}
 		}
 
