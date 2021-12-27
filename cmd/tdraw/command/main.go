@@ -7,7 +7,6 @@ import (
 	"image/color"
 	"image/draw"
 	"image/gif"
-	"log"
 	"math"
 	"os"
 
@@ -192,7 +191,6 @@ func App() *cli.App {
 			if bestPin == oldPin {
 				break
 			}
-			log.Printf("===== %d ======\n", index)
 			oldPin = bestPin
 		}
 
@@ -201,7 +199,6 @@ func App() *cli.App {
 		}
 
 		if c.Bool("gif") {
-			log.Println("===== generate gif ... ======")
 			opfile, err := os.Create(fmt.Sprintf("%s/result.out.gif", output))
 			if err != nil {
 				return errors.New("Failed ceating .gif file on disk: " + err.Error())
@@ -214,7 +211,15 @@ func App() *cli.App {
 		}
 
 		if c.Bool("ppins") {
-			log.Printf("pins: %v", lines)
+			fmt.Println("======================= pins ========================")
+			for index, line := range lines {
+				fmt.Printf("%3d  ", line)
+				if index%10 == 0 {
+					fmt.Println()
+				}
+			}
+			fmt.Println()
+			fmt.Println("======================= pins ========================")
 		}
 
 		return nil
